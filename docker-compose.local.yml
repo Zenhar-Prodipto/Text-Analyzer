@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./docker/backend/Dockerfile.local
+    container_name: text-analyzer-backend-local
+    environment:
+      NODE_ENV: local
+      DATABASE_HOST: postgres
+      REDIS_HOST: redis
+    env_file:
+      - .env
+    volumes:
+      - ./apps/backend/src:/app/src
+      - ./apps/backend/package.json:/app/package.json
+      - ./logs:/app/logs
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+      - "9229:9229" # Debug port
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: npm run start:dev
+
+  postgres:
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data
+      - ./docker/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+
+  redis:
+    volumes:
+      - redis_data_local:/data
+
+volumes:
+  postgres_data_local:
+    driver: local
+  redis_data_local:
+    driver: local
