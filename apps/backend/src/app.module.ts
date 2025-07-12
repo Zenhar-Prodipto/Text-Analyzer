@@ -10,6 +10,7 @@ import { JwtAuthGuard } from "./common/guards/auth.guard";
 import { RateLimitGuard } from "./cache/guards/rate-limit.guard";
 import { SharedModule } from "./shared/shared.module";
 import { ApiLoggingInterceptor } from "./common/interceptors/logging.interceptor";
+import { TextsModule } from "./texts/texts.module";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ApiLoggingInterceptor } from "./common/interceptors/logging.interceptor
     AuthModule,
     CacheModule,
     SharedModule,
+    TextsModule,
   ],
   providers: [
     {
