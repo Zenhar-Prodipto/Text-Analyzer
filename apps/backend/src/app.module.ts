@@ -5,7 +5,9 @@ import { APP_GUARD } from "@nestjs/core";
 import { HealthModule } from "./health/health.module";
 import { UsersModule } from "./users/users.module";
 import { AuthModule } from "./auth/auth.module";
+import { CacheModule } from "./cache/cache.module";
 import { JwtAuthGuard } from "./common/guards/auth.guard";
+import { RateLimitGuard } from "./cache/guards/rate-limit.guard";
 
 @Module({
   imports: [
@@ -25,8 +27,13 @@ import { JwtAuthGuard } from "./common/guards/auth.guard";
     HealthModule,
     UsersModule,
     AuthModule,
+    CacheModule,
   ],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

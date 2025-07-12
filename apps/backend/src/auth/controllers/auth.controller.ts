@@ -5,6 +5,10 @@ import { SignupDto } from "../dto/signup.dto";
 import { LoginDto } from "../dto/login.dto";
 import { AuthResponseDto } from "../dto/auth-response.dto";
 import { Public } from "../../common/decorators/public.decorator";
+import {
+  RateLimit,
+  RateLimitPresets,
+} from "../../cache/decorators/rate-limit.decorator";
 import { ApiSuccess } from "../../common/exceptions/api.exception";
 
 @ApiTags("Authentication")
@@ -13,10 +17,12 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @RateLimit(RateLimitPresets.AUTH) // 5 requests per 15 minutes
   @Post("signup")
   @ApiOperation({ summary: "User registration" })
   @ApiResponse({ status: 201, description: "User successfully registered" })
   @ApiResponse({ status: 409, description: "User already exists" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
   async signup(
     @Body() signupDto: SignupDto
   ): Promise<ApiSuccess<AuthResponseDto>> {
@@ -30,10 +36,12 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit(RateLimitPresets.AUTH) // 5 requests per 15 minutes
   @Post("login")
   @ApiOperation({ summary: "User login" })
   @ApiResponse({ status: 200, description: "User successfully logged in" })
   @ApiResponse({ status: 401, description: "Invalid credentials" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
   async login(
     @Body() loginDto: LoginDto
   ): Promise<ApiSuccess<AuthResponseDto>> {
