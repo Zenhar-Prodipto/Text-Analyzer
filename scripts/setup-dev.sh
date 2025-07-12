@@ -32,14 +32,11 @@ echo "📁 Creating necessary directories..."
 mkdir -p logs
 mkdir -p test/unit test/integration test/e2e
 
-# Clean up previous containers and volumes
-echo "🧹 Cleaning up previous containers..."
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml down --remove-orphans --volumes
-
-# Build and start services
+# Build and start services (preserving data)
 echo "🔧 Building and starting services..."
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml down --remove-orphans
 docker-compose -f docker-compose.yml -f docker-compose.dev.yml build --no-cache
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up 
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to be ready..."
@@ -66,13 +63,13 @@ if [ $attempt -gt $max_attempts ]; then
     exit 1
 fi
 
-echo "✅ development environment is ready!"
+echo "✅ Development environment is ready!"
 echo ""
 echo "🌐 Application URLs:"
 echo "   - Backend API: http://localhost:3000"
-echo "   - API Documentation: http://localhost:3000/api/docs"
+echo "   - API Documentation: http://localhost:3000/api/v1/docs"
 echo "   - Health Check: http://localhost:3000/api/v1/health"
-echo "   - Keycloak Admin: http://localhost:8080 (admin/admin)"
+echo "   - Kibana Logs: http://localhost:5601"
 echo ""
 echo "🗄️  Database Connection:"
 echo "   - Host: localhost"
@@ -85,9 +82,11 @@ echo "📊 Redis Connection:"
 echo "   - Host: localhost"
 echo "   - Port: 6379"
 echo ""
+echo "📝 Note: Database data is preserved across restarts!"
+echo ""
 echo "🛠️  Useful Commands:"
-echo "   - View logs: docker-compose -f docker-compose.yml -f docker-compose.local.yml logs -f"
-echo "   - Stop services: docker-compose -f docker-compose.yml -f docker-compose.local.yml down"
-echo "   - Restart backend: docker-compose -f docker-compose.yml -f docker-compose.local.yml restart backend"
+echo "   - View logs: docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f"
+echo "   - Stop services: docker-compose -f docker-compose.yml -f docker-compose.dev.yml down"
+echo "   - Restart backend: docker-compose -f docker-compose.yml -f docker-compose.dev.yml restart backend"
 echo ""
 echo "Happy coding! 🎉"

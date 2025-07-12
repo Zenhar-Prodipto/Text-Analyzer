@@ -22,7 +22,7 @@ if ! grep -q "NODE_ENV=production" .env; then
 fi
 
 # Validate critical variables
-required_vars=("DATABASE_PASSWORD" "JWT_SECRET" "KEYCLOAK_CLIENT_SECRET")
+required_vars=("DATABASE_PASSWORD" "JWT_SECRET" "JWT_REFRESH_SECRET")
 for var in "${required_vars[@]}"; do
     if ! grep -q "^$var=" .env || grep -q "^$var=.*change.*" .env; then
         echo "❌ $var is not properly configured for production!"
@@ -52,24 +52,20 @@ chmod 755 logs
 echo "🔒 Setting up security configurations..."
 chmod 600 .env
 
-# Clean up any existing containers and volumes (production safety)
-echo "🧹 Cleaning up previous containers..."
-read -p "⚠️  This will remove existing containers and volumes. Continue? (y/N): " -n 1 -r
+# Ask for confirmation before proceeding (production safety)
+echo "⚠️  You are about to start the PRODUCTION environment."
+read -p "🔄 Continue? (y/N): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "❌ Aborted by user."
     exit 1
 fi
 
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans --volumes
-
-# Build images with no cache for production
-echo "🔧 Building production images..."
+# Build and start services (preserving data)
+echo "🔧 Building and starting production services..."
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml down --remove-orphans
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
-
-# Start services in production mode
-echo "🚀 Starting production services..."
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up 
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to be ready..."
@@ -113,22 +109,14 @@ fi
 echo "📊 Checking service resources..."
 docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" | grep text-analyzer
 
-# Security verification
-echo "🔒 Performing security verification..."
-if docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec backend whoami | grep -q "nestjs"; then
-    echo "✅ Backend is running as non-root user"
-else
-    echo "⚠️  Backend might not be running as non-root user"
-fi
-
 echo ""
 echo "🎉 Production environment is ready!"
 echo ""
 echo "🌐 Application URLs:"
 echo "   - Backend API: http://localhost:3000"
-echo "   - API Documentation: http://localhost:3000/api/docs"
+echo "   - API Documentation: http://localhost:3000/api/v1/docs"
 echo "   - Health Check: http://localhost:3000/api/v1/health"
-echo "   - Keycloak Admin: http://localhost:8080 (admin/admin)"
+echo "   - Kibana Logs: http://localhost:5601"
 echo ""
 echo "🗄️  Database Connection:"
 echo "   - Host: localhost"
@@ -140,6 +128,8 @@ echo "📊 Redis Connection:"
 echo "   - Host: localhost"
 echo "   - Port: 6379"
 echo ""
+echo "📝 IMPORTANT: Database data is preserved across deployments!"
+echo ""
 echo "🛠️  Production Commands:"
 echo "   - View logs: docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f"
 echo "   - Stop services: docker-compose -f docker-compose.yml -f docker-compose.prod.yml down"
@@ -148,15 +138,9 @@ echo "   - Service status: docker-compose -f docker-compose.yml -f docker-compos
 echo "   - Resource usage: docker stats"
 echo ""
 echo "🔒 Security Notes:"
-echo "   - Ensure your .env file has secure passwords"
-echo "   - Consider using Docker secrets for sensitive data"
 echo "   - Monitor logs regularly: tail -f logs/application.log"
 echo "   - Set up proper firewall rules"
 echo "   - Use HTTPS in production with reverse proxy"
-echo ""
-echo "📈 Monitoring:"
-echo "   - Check service health: curl http://localhost:3000/api/v1/health"
-echo "   - Monitor resource usage: docker stats"
-echo "   - Check application logs: docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs backend"
+echo "   - Backup database regularly"
 echo ""
 echo "Production deployment complete! 🎊"
