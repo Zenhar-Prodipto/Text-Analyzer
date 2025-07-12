@@ -1,8 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { UsersService } from "../../users/services/users.service";
 import { CacheService } from "../../cache/services/cache.service";
+import { CustomLoggerService } from "../../shared/services/logger.service";
 import { RefreshTokenRepository } from "../repositories/refresh-token.repository";
 import { SignupDto } from "../dto/signup.dto";
 import { LoginDto } from "../dto/login.dto";
@@ -16,13 +17,12 @@ import * as crypto from "crypto";
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly cacheService: CacheService,
+    private readonly customLogger: CustomLoggerService,
     private readonly refreshTokenRepository: RefreshTokenRepository
   ) {}
 
@@ -31,7 +31,16 @@ export class AuthService {
     userAgent?: string,
     ipAddress?: string
   ): Promise<AuthResponseDto> {
+    const startTime = Date.now();
+
     try {
+      // Log signup attempt
+      this.customLogger.logAuthEvent("signup", {
+        email: signupDto.email,
+        ip: ipAddress,
+        userAgent,
+      });
+
       const user = await this.usersService.createUser(signupDto);
       const tokens = await this.generateTokens(
         user.id,
@@ -40,7 +49,20 @@ export class AuthService {
         ipAddress
       );
 
-      this.logger.log(`User registered successfully: ${user.email}`);
+      // Log successful signup
+      this.customLogger.logAuthEvent("signup", {
+        userId: user.id,
+        email: user.email,
+        ip: ipAddress,
+        userAgent,
+        success: true,
+      });
+
+      // Log performance
+      this.customLogger.logPerformance("user_signup", Date.now() - startTime, {
+        userId: user.id,
+        email: user.email,
+      });
 
       return {
         id: user.id,
@@ -52,6 +74,20 @@ export class AuthService {
         expires_in: this.getAccessTokenExpirySeconds(),
       };
     } catch (error) {
+      // Log signup failure
+      this.customLogger.logSecurityEvent("brute_force_attempt", "warn", {
+        email: signupDto.email,
+        ip: ipAddress,
+        userAgent,
+        error: error.message,
+      });
+
+      this.customLogger.logError(error, {
+        operation: "signup",
+        email: signupDto.email,
+        ip: ipAddress,
+      });
+
       if (error instanceof ApiException) {
         throw error;
       }
@@ -68,13 +104,30 @@ export class AuthService {
     userAgent?: string,
     ipAddress?: string
   ): Promise<AuthResponseDto> {
+    const startTime = Date.now();
+
     try {
+      // Log login attempt
+      this.customLogger.logAuthEvent("login", {
+        email: loginDto.email,
+        ip: ipAddress,
+        userAgent,
+      });
+
       const user = await this.usersService.validateUserPassword(
         loginDto.email,
         loginDto.password
       );
 
       if (!user) {
+        // Log failed login attempt
+        this.customLogger.logSecurityEvent("unauthorized_access", "warn", {
+          email: loginDto.email,
+          ip: ipAddress,
+          userAgent,
+          reason: "invalid_credentials",
+        });
+
         throw new ApiException(
           "Invalid email or password",
           HttpStatus.UNAUTHORIZED,
@@ -89,7 +142,20 @@ export class AuthService {
         ipAddress
       );
 
-      this.logger.log(`User logged in successfully: ${user.email}`);
+      // Log successful login
+      this.customLogger.logAuthEvent("login", {
+        userId: user.id,
+        email: user.email,
+        ip: ipAddress,
+        userAgent,
+        success: true,
+      });
+
+      // Log performance
+      this.customLogger.logPerformance("user_login", Date.now() - startTime, {
+        userId: user.id,
+        email: user.email,
+      });
 
       return {
         id: user.id,
@@ -101,6 +167,12 @@ export class AuthService {
         expires_in: this.getAccessTokenExpirySeconds(),
       };
     } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "login",
+        email: loginDto.email,
+        ip: ipAddress,
+      });
+
       if (error instanceof ApiException) {
         throw error;
       }
@@ -115,14 +187,26 @@ export class AuthService {
   async refreshToken(
     refreshTokenDto: RefreshTokenDto
   ): Promise<TokenResponseDto> {
+    const startTime = Date.now();
+
     try {
       const { refresh_token } = refreshTokenDto;
+
+      // Log refresh attempt
+      this.customLogger.logAuthEvent("token_refresh", {
+        refreshToken: refresh_token.substring(0, 10) + "...",
+      });
 
       // Find refresh token in database
       const tokenRecord =
         await this.refreshTokenRepository.findByToken(refresh_token);
 
       if (!tokenRecord) {
+        this.customLogger.logSecurityEvent("invalid_token", "warn", {
+          refreshToken: refresh_token.substring(0, 10) + "...",
+          reason: "token_not_found",
+        });
+
         throw new ApiException(
           "Invalid refresh token",
           HttpStatus.UNAUTHORIZED,
@@ -134,6 +218,13 @@ export class AuthService {
       if (new Date() > tokenRecord.expires_at) {
         await this.refreshTokenRepository.revokeToken(tokenRecord.id);
         await this.cacheService.del(`refresh_token:${refresh_token}`);
+
+        this.customLogger.logSecurityEvent("invalid_token", "warn", {
+          userId: tokenRecord.user.id,
+          email: tokenRecord.user.email,
+          reason: "token_expired",
+        });
+
         throw new ApiException(
           "Refresh token expired",
           HttpStatus.UNAUTHORIZED,
@@ -153,7 +244,20 @@ export class AuthService {
       await this.refreshTokenRepository.revokeToken(tokenRecord.id);
       await this.cacheService.del(`refresh_token:${refresh_token}`);
 
-      this.logger.log(`Token refreshed for user: ${tokenRecord.user.email}`);
+      // Log successful refresh
+      this.customLogger.logAuthEvent("token_refresh", {
+        userId: tokenRecord.user.id,
+        email: tokenRecord.user.email,
+        success: true,
+      });
+
+      this.customLogger.logPerformance(
+        "token_refresh",
+        Date.now() - startTime,
+        {
+          userId: tokenRecord.user.id,
+        }
+      );
 
       return {
         access_token: tokens.access_token,
@@ -161,6 +265,10 @@ export class AuthService {
         expires_in: this.getAccessTokenExpirySeconds(),
       };
     } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "token_refresh",
+      });
+
       if (error instanceof ApiException) {
         throw error;
       }
@@ -182,10 +290,19 @@ export class AuthService {
       if (tokenRecord) {
         await this.refreshTokenRepository.revokeToken(tokenRecord.id);
         await this.cacheService.del(`refresh_token:${refresh_token}`);
-        this.logger.log(`User logged out: ${tokenRecord.user.email}`);
+
+        // Log successful logout
+        this.customLogger.logAuthEvent("logout", {
+          userId: tokenRecord.user.id,
+          email: tokenRecord.user.email,
+          success: true,
+        });
       }
     } catch (error) {
-      this.logger.error("Logout failed:", error);
+      this.customLogger.logError(error, {
+        operation: "logout",
+      });
+
       throw new ApiException(
         "Logout failed",
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -207,9 +324,18 @@ export class AuthService {
         await this.cacheService.del(`refresh_token:${token.token}`);
       }
 
-      this.logger.log(`All tokens revoked for user: ${userId}`);
+      // Log logout all
+      this.customLogger.logAuthEvent("logout_all", {
+        userId,
+        tokensRevoked: userTokens.length,
+        success: true,
+      });
     } catch (error) {
-      this.logger.error("Logout all failed:", error);
+      this.customLogger.logError(error, {
+        operation: "logout_all",
+        userId,
+      });
+
       throw new ApiException(
         "Logout all failed",
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -250,8 +376,15 @@ export class AuthService {
     await this.cacheService.set(
       `refresh_token:${refresh_token}`,
       { userId, email },
-      refreshExpiryDays * 24 * 60 * 60 // Convert days to seconds
+      refreshExpiryDays * 24 * 60 * 60
     );
+
+    // Log token generation
+    this.customLogger.logAuthEvent("token_refresh", {
+      userId,
+      email,
+      tokenGenerated: true,
+    });
 
     return { access_token, refresh_token };
   }
@@ -267,7 +400,7 @@ export class AuthService {
 
   private getRefreshTokenExpiryDays(): number {
     const expiresIn = this.configService.get<string>("JWT_REFRESH_EXPIRES_IN");
-    return parseInt(expiresIn.replace("d", "")); // "30d" -> 30
+    return parseInt(expiresIn.replace("d", ""));
   }
 
   private parseTimeToSeconds(timeString: string): number {
@@ -280,6 +413,6 @@ export class AuthService {
     if (timeString.endsWith("m")) {
       return parseInt(timeString) * 60;
     }
-    return parseInt(timeString); // Assume seconds
+    return parseInt(timeString);
   }
 }

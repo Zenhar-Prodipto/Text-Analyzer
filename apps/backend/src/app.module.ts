@@ -1,13 +1,15 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { HealthModule } from "./health/health.module";
 import { UsersModule } from "./users/users.module";
 import { AuthModule } from "./auth/auth.module";
 import { CacheModule } from "./cache/cache.module";
 import { JwtAuthGuard } from "./common/guards/auth.guard";
 import { RateLimitGuard } from "./cache/guards/rate-limit.guard";
+import { SharedModule } from "./shared/shared.module";
+import { ApiLoggingInterceptor } from "./common/interceptors/logging.interceptor";
 
 @Module({
   imports: [
@@ -28,8 +30,13 @@ import { RateLimitGuard } from "./cache/guards/rate-limit.guard";
     UsersModule,
     AuthModule,
     CacheModule,
+    SharedModule,
   ],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ApiLoggingInterceptor,
+    },
     {
       provide: APP_GUARD,
       useClass: RateLimitGuard,
