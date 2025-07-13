@@ -16,6 +16,7 @@ import {
 import { ApiSuccess } from "../../common/exceptions/api.exception";
 import {
   CharacterCountSuccessResponseDto,
+  LongestWordsSuccessResponseDto,
   ParagraphCountSuccessResponseDto,
   SentenceCountSuccessResponseDto,
   WordCountSuccessResponseDto,
@@ -23,6 +24,7 @@ import {
 import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
+import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
 
 @ApiTags("Text Analysis")
 @ApiBearerAuth()
@@ -170,6 +172,40 @@ export class AnalysisController {
     return {
       success: true,
       message: "Paragraph count analysis completed successfully",
+      status: HttpStatus.OK,
+      data,
+    };
+  }
+
+  @RateLimit(RateLimitPresets.NORMAL)
+  @Get(":textId/longest-words")
+  @ApiOperation({
+    summary: "Get longest words for text",
+    description:
+      "Analyze and return the longest words per paragraph for a specific text owned by the user",
+  })
+  @ApiParam({
+    name: "textId",
+    description: "UUID of the text to analyze",
+    example: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Longest words analysis completed successfully",
+    type: LongestWordsSuccessResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({ status: 404, description: "Text not found" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
+  async getLongestWords(
+    @Param("textId") textId: string,
+    @UserId() userId: string
+  ): Promise<ApiSuccess<LongestWordsResponseDto>> {
+    const data = await this.analysisService.analyzeLongestWords(textId, userId);
+
+    return {
+      success: true,
+      message: "Longest words analysis completed successfully",
       status: HttpStatus.OK,
       data,
     };

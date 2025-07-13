@@ -10,6 +10,7 @@ import { ConfigService } from "@nestjs/config";
 import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
+import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -397,6 +398,97 @@ export class AnalysisService {
     }
   }
 
+  // Analyze longest words for a specific text owned by user
+  async analyzeLongestWords(
+    textId: string,
+    userId: string
+  ): Promise<LongestWordsResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      const text = await this.textsService.getTextEntityById(textId, userId);
+
+      const cacheKey = this.generateCacheKey("longest_words", textId);
+      const cachedResult =
+        await this.cacheService.get<LongestWordsResponseDto>(cacheKey);
+
+      if (cachedResult && text.analyzed_at) {
+        this.customLogger.logPerformance(
+          "longest_words_analysis_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            textLength: text.content.length,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      const analysisStartTime = Date.now();
+      const longestWordsData = TextProcessor.findLongestWordsPerParagraph(
+        text.content
+      );
+      const analysisTime = Date.now() - analysisStartTime;
+
+      const result: LongestWordsResponseDto = {
+        longestWords: longestWordsData,
+        text: text.content,
+        textId: textId,
+      };
+
+      // Extract all longest words for storage in Text entity
+      const allLongestWords = longestWordsData.flatMap((item) => item.words);
+      const uniqueLongestWords = [...new Set(allLongestWords)];
+
+      await this.textsService.updateTextAnalysis(textId, userId, {
+        longest_words: uniqueLongestWords,
+      });
+
+      await this.cacheService.set(cacheKey, result, this.CACHE_TTL);
+
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "longest_words",
+        textLength: text.content.length,
+        longestWordsCount: uniqueLongestWords.length,
+        processingTimeMs: analysisTime,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "longest_words_analysis",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          textLength: text.content.length,
+          longestWordsCount: uniqueLongestWords.length,
+          cacheHit: false,
+          algorithmTimeMs: analysisTime,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "longest_words_analysis",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) throw error;
+
+      throw new ApiException(
+        "Longest words analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
   // Generate consistent cache key for analysis results based on textId
 
   private generateCacheKey(analysisType: string, textId: string): string {
