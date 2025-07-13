@@ -18,7 +18,7 @@ import { AnalysisReportResponseDto } from "../dto/analysis-report-response.dto";
 export class AnalysisService {
   private readonly CACHE_TTL = this.configService.get<number>(
     "ANALYSIS_CACHE_TTL",
-    3600 // 1 hour cache
+    86400 // 1 day cache
   );
 
   constructor(
