@@ -7,7 +7,7 @@ A production-grade text analysis tool built with enterprise-level architecture, 
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd text-analyzer
+cd Text-Analyzer
 
 # Make scripts executable (Required for all platforms)
 chmod +x scripts/setup-*.sh
