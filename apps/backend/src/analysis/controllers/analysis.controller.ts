@@ -14,7 +14,11 @@ import {
   RateLimitPresets,
 } from "../../cache/decorators/rate-limit.decorator";
 import { ApiSuccess } from "../../common/exceptions/api.exception";
-import { WordCountSuccessResponseDto } from "../dto/analysis-responses.doc.dto";
+import {
+  CharacterCountSuccessResponseDto,
+  WordCountSuccessResponseDto,
+} from "../dto/analysis-responses.doc.dto";
+import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 
 @ApiTags("Text Analysis")
 @ApiBearerAuth()
@@ -51,6 +55,43 @@ export class AnalysisController {
     return {
       success: true,
       message: "Word count analysis completed successfully",
+      status: HttpStatus.OK,
+      data,
+    };
+  }
+
+  @RateLimit(RateLimitPresets.NORMAL) // 60 requests per minute
+  @Get(":textId/characters")
+  @ApiOperation({
+    summary: "Get character count for text",
+    description:
+      "Analyze and return the character count for a specific text owned by the user",
+  })
+  @ApiParam({
+    name: "textId",
+    description: "UUID of the text to analyze",
+    example: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Character count analysis completed successfully",
+    type: CharacterCountSuccessResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({ status: 404, description: "Text not found" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
+  async getCharacterCount(
+    @Param("textId") textId: string,
+    @UserId() userId: string
+  ): Promise<ApiSuccess<CharacterCountResponseDto>> {
+    const data = await this.analysisService.analyzeCharacterCount(
+      textId,
+      userId
+    );
+
+    return {
+      success: true,
+      message: "Character count analysis completed successfully",
       status: HttpStatus.OK,
       data,
     };

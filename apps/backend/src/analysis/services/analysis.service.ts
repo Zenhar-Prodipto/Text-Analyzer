@@ -7,6 +7,7 @@ import { WordCountResponseDto } from "../dto/word-count-response.dto";
 import { ApiException } from "../../common/exceptions/api.exception";
 import { HttpStatus } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -117,6 +118,100 @@ export class AnalysisService {
     }
   }
 
+  // Analyze character count for a specific text owned by user
+  async analyzeCharacterCount(
+    textId: string,
+    userId: string
+  ): Promise<CharacterCountResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      // Get user's text and verify ownership
+      const text = await this.textsService.getTextEntityById(textId, userId);
+
+      // Check if already analyzed and cached
+      const cacheKey = this.generateCacheKey("character_count", textId);
+      const cachedResult =
+        await this.cacheService.get<CharacterCountResponseDto>(cacheKey);
+
+      if (cachedResult && text.analyzed_at) {
+        this.customLogger.logPerformance(
+          "character_count_analysis_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            textLength: text.content.length,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      // Perform analysis
+      const analysisStartTime = Date.now();
+      const cleanedText = TextProcessor.cleanText(text.content);
+      const characterCount = TextProcessor.countValidCharacters(cleanedText);
+      const analysisTime = Date.now() - analysisStartTime;
+
+      const result: CharacterCountResponseDto = {
+        count: characterCount,
+        text: text.content,
+        textId: textId,
+      };
+
+      // Update text entity with analysis result
+      await this.textsService.updateTextAnalysis(textId, userId, {
+        character_count: characterCount,
+      });
+
+      // Cache the result
+      await this.cacheService.set(cacheKey, result, this.CACHE_TTL);
+
+      // Log analysis event
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "character_count",
+        textLength: text.content.length,
+        characterCount: characterCount,
+        processingTimeMs: analysisTime,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "character_count_analysis",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          textLength: text.content.length,
+          characterCount: characterCount,
+          cacheHit: false,
+          algorithmTimeMs: analysisTime,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "character_count_analysis",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) {
+        throw error;
+      }
+
+      throw new ApiException(
+        "Character count analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
   // Generate consistent cache key for analysis results based on textId
 
   private generateCacheKey(analysisType: string, textId: string): string {
