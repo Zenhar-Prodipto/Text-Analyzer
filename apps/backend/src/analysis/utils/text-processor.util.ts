@@ -21,7 +21,7 @@ export class TextProcessor {
   private static readonly MULTIPLE_SPACES = /\s+/g;
   private static readonly NON_ALPHABETIC = /[^a-zA-Z\s]/g;
 
-  static analyzeText(text: string): TextAnalysisResult {
+  static analyzeText(text: string | null | undefined): TextAnalysisResult {
     if (!text || typeof text !== "string") {
       return {
         words: [],
@@ -75,8 +75,6 @@ export class TextProcessor {
       .trim(); // Remove leading/trailing spaces
   }
 
-  // Legacy method - now uses cleanTextForWords
-
   static cleanText(text: string): string {
     return this.cleanTextForWords(text);
   }
@@ -127,16 +125,11 @@ export class TextProcessor {
   private static extractSentencesFromText(text: string): string[] {
     if (!text.trim()) return [];
 
-    console.log("DEBUG - Input text:", text);
-    console.log("DEBUG - After split:", text.split(this.SENTENCE_TERMINATORS));
-
     // Split by sentence terminators and clean up
     const sentences = text
       .split(this.SENTENCE_TERMINATORS)
       .map((sentence) => sentence.trim())
       .filter((sentence) => sentence.length > 0);
-
-    console.log("DEBUG - Final sentences:", sentences);
 
     return sentences;
   }
