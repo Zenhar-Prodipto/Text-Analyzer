@@ -16,9 +16,11 @@ import {
 import { ApiSuccess } from "../../common/exceptions/api.exception";
 import {
   CharacterCountSuccessResponseDto,
+  SentenceCountSuccessResponseDto,
   WordCountSuccessResponseDto,
 } from "../dto/analysis-responses.doc.dto";
 import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
+import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 
 @ApiTags("Text Analysis")
 @ApiBearerAuth()
@@ -92,6 +94,43 @@ export class AnalysisController {
     return {
       success: true,
       message: "Character count analysis completed successfully",
+      status: HttpStatus.OK,
+      data,
+    };
+  }
+
+  @RateLimit(RateLimitPresets.NORMAL) // 60 requests per minute
+  @Get(":textId/sentences")
+  @ApiOperation({
+    summary: "Get sentence count for text",
+    description:
+      "Analyze and return the sentence count for a specific text owned by the user",
+  })
+  @ApiParam({
+    name: "textId",
+    description: "UUID of the text to analyze",
+    example: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Sentence count analysis completed successfully",
+    type: SentenceCountSuccessResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({ status: 404, description: "Text not found" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
+  async getSentenceCount(
+    @Param("textId") textId: string,
+    @UserId() userId: string
+  ): Promise<ApiSuccess<SentenceCountResponseDto>> {
+    const data = await this.analysisService.analyzeSentenceCount(
+      textId,
+      userId
+    );
+
+    return {
+      success: true,
+      message: "Sentence count analysis completed successfully",
       status: HttpStatus.OK,
       data,
     };

@@ -8,6 +8,7 @@ import { ApiException } from "../../common/exceptions/api.exception";
 import { HttpStatus } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
+import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -212,6 +213,102 @@ export class AnalysisService {
       );
     }
   }
+
+  // Analyze sentence count for a specific text owned by user
+
+  async analyzeSentenceCount(
+    textId: string,
+    userId: string
+  ): Promise<SentenceCountResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      // Get user's text and verify ownership
+      const text = await this.textsService.getTextEntityById(textId, userId);
+
+      // Check if already analyzed and cached
+      const cacheKey = this.generateCacheKey("sentence_count", textId);
+      const cachedResult =
+        await this.cacheService.get<SentenceCountResponseDto>(cacheKey);
+
+      if (cachedResult && text.analyzed_at) {
+        this.customLogger.logPerformance(
+          "sentence_count_analysis_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            textLength: text.content.length,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      // Perform analysis
+      const analysisStartTime = Date.now();
+      const sentences = TextProcessor.extractSentences(text.content);
+      const analysisTime = Date.now() - analysisStartTime;
+
+      const result: SentenceCountResponseDto = {
+        count: sentences.length,
+        text: text.content,
+        textId: textId,
+      };
+
+      // Update text entity with analysis result
+      await this.textsService.updateTextAnalysis(textId, userId, {
+        sentence_count: sentences.length,
+      });
+
+      // Cache the result
+      await this.cacheService.set(cacheKey, result, this.CACHE_TTL);
+
+      // Log analysis event
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "sentence_count",
+        textLength: text.content.length,
+        sentenceCount: sentences.length,
+        processingTimeMs: analysisTime,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "sentence_count_analysis",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          textLength: text.content.length,
+          sentenceCount: sentences.length,
+          cacheHit: false,
+          algorithmTimeMs: analysisTime,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "sentence_count_analysis",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) {
+        throw error;
+      }
+
+      throw new ApiException(
+        "Sentence count analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
   // Generate consistent cache key for analysis results based on textId
 
   private generateCacheKey(analysisType: string, textId: string): string {
