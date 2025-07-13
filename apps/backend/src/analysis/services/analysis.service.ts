@@ -12,6 +12,7 @@ import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
 import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
 import { FullAnalysisResponseDto } from "../dto/full-analysis-response.dto";
+import { AnalysisReportResponseDto } from "../dto/analysis-report-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -611,6 +612,116 @@ export class AnalysisService {
 
       throw new ApiException(
         "Full text analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
+  // Get comprehensive analysis report for a specific text owned by user
+  async getAnalysisReport(
+    textId: string,
+    userId: string
+  ): Promise<AnalysisReportResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      // Get text with user relationship for owner info
+      const text = await this.textsService.getTextEntityWithUser(
+        textId,
+        userId
+      );
+
+      const cacheKey = this.generateCacheKey("analysis_report", textId);
+      const cachedResult =
+        await this.cacheService.get<AnalysisReportResponseDto>(cacheKey);
+
+      if (cachedResult) {
+        this.customLogger.logPerformance(
+          "analysis_report_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      // Check if text has been analyzed
+      const hasAnalysis = text.analyzed_at !== null;
+
+      if (!hasAnalysis) {
+        // If not analyzed, suggest running analysis first
+        throw new ApiException(
+          "Text has not been analyzed yet. Please run analysis first using POST /analysis/:textId/analyze",
+          HttpStatus.BAD_REQUEST,
+          "TEXT_NOT_ANALYZED"
+        );
+      }
+
+      // Build comprehensive report
+      const result: AnalysisReportResponseDto = {
+        textId: text.id,
+        title: text.title,
+        content: text.content,
+        analysis: {
+          wordCount: text.word_count,
+          characterCount: text.character_count,
+          sentenceCount: text.sentence_count,
+          paragraphCount: text.paragraph_count,
+          longestWords: text.longest_words || [],
+          analyzedAt: text.analyzed_at,
+        },
+        owner: {
+          userId: text.user.id,
+          email: text.user.email,
+          name: text.user.name,
+        },
+        createdAt: text.created_at,
+        updatedAt: text.updated_at,
+      };
+
+      // Cache the report (shorter TTL since it includes user data)
+      await this.cacheService.set(
+        cacheKey,
+        result,
+        Math.floor(this.CACHE_TTL / 2)
+      );
+
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "analysis_report",
+        hasAnalysis,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "analysis_report",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          hasAnalysis,
+          cacheHit: false,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "get_analysis_report",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) throw error;
+
+      throw new ApiException(
+        "Failed to retrieve analysis report",
         HttpStatus.INTERNAL_SERVER_ERROR,
         error.message
       );

@@ -15,6 +15,7 @@ import {
 } from "../../cache/decorators/rate-limit.decorator";
 import { ApiSuccess } from "../../common/exceptions/api.exception";
 import {
+  AnalysisReportSuccessResponseDto,
   CharacterCountSuccessResponseDto,
   FullAnalysisSuccessResponseDto,
   LongestWordsSuccessResponseDto,
@@ -27,6 +28,7 @@ import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
 import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
 import { FullAnalysisResponseDto } from "../dto/full-analysis-response.dto";
+import { AnalysisReportResponseDto } from "../dto/analysis-report-response.dto";
 
 @ApiTags("Text Analysis")
 @ApiBearerAuth()
@@ -242,6 +244,44 @@ export class AnalysisController {
     return {
       success: true,
       message: "Complete text analysis performed successfully",
+      status: HttpStatus.OK,
+      data,
+    };
+  }
+
+  @RateLimit(RateLimitPresets.NORMAL) // 60 requests per minute
+  @Get(":textId/report")
+  @ApiOperation({
+    summary: "Get comprehensive analysis report",
+    description:
+      "Retrieve complete analysis report for a specific text owned by the user, including text details and owner information",
+  })
+  @ApiParam({
+    name: "textId",
+    description: "UUID of the text to get report for",
+    example: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Analysis report retrieved successfully",
+    type: AnalysisReportSuccessResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({ status: 404, description: "Text not found" })
+  @ApiResponse({
+    status: 428,
+    description: "Text not analyzed yet - run analysis first",
+  })
+  @ApiResponse({ status: 429, description: "Too many requests" })
+  async getAnalysisReport(
+    @Param("textId") textId: string,
+    @UserId() userId: string
+  ): Promise<ApiSuccess<AnalysisReportResponseDto>> {
+    const data = await this.analysisService.getAnalysisReport(textId, userId);
+
+    return {
+      success: true,
+      message: "Analysis report retrieved successfully",
       status: HttpStatus.OK,
       data,
     };
