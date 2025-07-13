@@ -9,6 +9,7 @@ import { HttpStatus } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
+import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -303,6 +304,93 @@ export class AnalysisService {
 
       throw new ApiException(
         "Sentence count analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
+  // Analyze Paragraph count for a specific text owned by user
+
+  async analyzeParagraphCount(
+    textId: string,
+    userId: string
+  ): Promise<ParagraphCountResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      const text = await this.textsService.getTextEntityById(textId, userId);
+
+      const cacheKey = this.generateCacheKey("paragraph_count", textId);
+      const cachedResult =
+        await this.cacheService.get<ParagraphCountResponseDto>(cacheKey);
+
+      if (cachedResult && text.analyzed_at) {
+        this.customLogger.logPerformance(
+          "paragraph_count_analysis_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            textLength: text.content.length,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      const analysisStartTime = Date.now();
+      const paragraphs = TextProcessor.extractParagraphs(text.content);
+      const analysisTime = Date.now() - analysisStartTime;
+
+      const result: ParagraphCountResponseDto = {
+        count: paragraphs.length,
+        text: text.content,
+        textId: textId,
+      };
+
+      await this.textsService.updateTextAnalysis(textId, userId, {
+        paragraph_count: paragraphs.length,
+      });
+
+      await this.cacheService.set(cacheKey, result, this.CACHE_TTL);
+
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "paragraph_count",
+        textLength: text.content.length,
+        paragraphCount: paragraphs.length,
+        processingTimeMs: analysisTime,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "paragraph_count_analysis",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          textLength: text.content.length,
+          paragraphCount: paragraphs.length,
+          cacheHit: false,
+          algorithmTimeMs: analysisTime,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "paragraph_count_analysis",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) throw error;
+
+      throw new ApiException(
+        "Paragraph count analysis failed",
         HttpStatus.INTERNAL_SERVER_ERROR,
         error.message
       );
