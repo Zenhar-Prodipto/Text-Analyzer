@@ -453,6 +453,141 @@ export class TextsService {
     }
   }
 
+  /**
+   * Update text analysis results in database
+   */
+  async updateTextAnalysis(
+    textId: string,
+    userId: string,
+    analysisData: Partial<{
+      word_count: number;
+      character_count: number;
+      sentence_count: number;
+      paragraph_count: number;
+      longest_words: string[];
+    }>
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    try {
+      // Verify text ownership
+      const text = await this.textsRepository.findUserTextById(textId, userId);
+      if (!text) {
+        throw new ApiException(
+          "Text not found",
+          HttpStatus.NOT_FOUND,
+          "TEXT_NOT_FOUND"
+        );
+      }
+
+      // Update with analysis data and timestamp
+      await this.textsRepository.update(textId, {
+        ...analysisData,
+        analyzed_at: new Date(),
+      });
+
+      // Log database operation
+      this.customLogger.logDatabaseEvent("update", "texts", {
+        userId,
+        textId,
+        operation: "analysis_update",
+        analysisFields: Object.keys(analysisData),
+      });
+
+      // Invalidate text caches to ensure fresh data
+      await this.invalidateTextCaches(textId, userId);
+
+      // Log performance
+      this.customLogger.logPerformance(
+        "text_analysis_update",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          analysisFields: Object.keys(analysisData),
+        }
+      );
+    } catch (error) {
+      if (error instanceof ApiException) {
+        throw error;
+      }
+
+      this.customLogger.logError(error, {
+        operation: "update_text_analysis",
+        userId,
+        textId,
+      });
+
+      throw new ApiException(
+        "Failed to update text analysis",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
+  /**
+   * Get text by ID as Text entity (for internal use)
+   */
+  async getTextEntityById(id: string, userId: string): Promise<Text> {
+    const startTime = Date.now();
+
+    try {
+      // Query database directly for entity
+      const text = await this.textsRepository.findUserTextById(id, userId);
+
+      if (!text) {
+        this.customLogger.logBusinessEvent("text_created", {
+          userId,
+          textId: id,
+          error: "text_not_found",
+        });
+
+        throw new ApiException(
+          "Text not found",
+          HttpStatus.NOT_FOUND,
+          "TEXT_NOT_FOUND"
+        );
+      }
+
+      // Log database operation
+      this.customLogger.logDatabaseEvent("read", "texts", {
+        userId,
+        textId: id,
+        title: text.title,
+        operation: "entity_fetch",
+      });
+
+      // Log performance
+      this.customLogger.logPerformance(
+        "text_entity_get_query",
+        Date.now() - startTime,
+        {
+          userId,
+          textId: id,
+        }
+      );
+
+      return text;
+    } catch (error) {
+      if (error instanceof ApiException) {
+        throw error;
+      }
+
+      this.customLogger.logError(error, {
+        operation: "get_text_entity_by_id",
+        userId,
+        textId: id,
+      });
+
+      throw new ApiException(
+        "Failed to retrieve text",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
   private async cacheText(text: Text): Promise<void> {
     const cacheKey = `text:${text.id}:${text.user_id}`;
     const responseDto = this.mapToResponseDto(text);
@@ -474,12 +609,43 @@ export class TextsService {
   }
 
   private async invalidateUserTextsCache(userId: string): Promise<void> {
-    //invalidate common cache patterns
-    const patterns = [`user_texts:${userId}:*`, `user_text_count:${userId}`];
+    // Get Redis client for pattern-based deletion
+    const client = this.cacheService.getClient();
 
-    for (const pattern of patterns) {
-      await this.cacheService.del(pattern);
+    try {
+      // Find all keys matching the pattern
+      const userTextKeys = await client.keys(`user_texts:${userId}:*`);
+
+      // Delete all matching keys
+      if (userTextKeys.length > 0) {
+        await client.del(...userTextKeys);
+      }
+
+      // Also delete count cache
+      await this.cacheService.del(`user_text_count:${userId}`);
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "invalidate_user_texts_cache",
+        userId,
+      });
     }
+  }
+
+  async getTextEntityWithUser(id: string, userId: string): Promise<Text> {
+    const text = await this.textsRepository.findOne({
+      where: { id, user_id: userId },
+      relations: ["user"], // Include user relation
+    });
+
+    if (!text) {
+      throw new ApiException(
+        "Text not found",
+        HttpStatus.NOT_FOUND,
+        "TEXT_NOT_FOUND"
+      );
+    }
+
+    return text;
   }
 
   private mapToResponseDto(text: Text): TextResponseDto {

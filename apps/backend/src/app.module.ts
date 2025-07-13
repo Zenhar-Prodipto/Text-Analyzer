@@ -11,6 +11,7 @@ import { RateLimitGuard } from "./cache/guards/rate-limit.guard";
 import { SharedModule } from "./shared/shared.module";
 import { ApiLoggingInterceptor } from "./common/interceptors/logging.interceptor";
 import { TextsModule } from "./texts/texts.module";
+import { AnalysisModule } from "./analysis/analysis.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { TextsModule } from "./texts/texts.module";
     CacheModule,
     SharedModule,
     TextsModule,
+    AnalysisModule,
   ],
   providers: [
     {
