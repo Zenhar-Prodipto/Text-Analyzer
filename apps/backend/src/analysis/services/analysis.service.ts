@@ -11,6 +11,7 @@ import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
 import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
+import { FullAnalysisResponseDto } from "../dto/full-analysis-response.dto";
 
 @Injectable()
 export class AnalysisService {
@@ -484,6 +485,132 @@ export class AnalysisService {
 
       throw new ApiException(
         "Longest words analysis failed",
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message
+      );
+    }
+  }
+
+  // Perform full analysis combining all metrics for a specific text owned by user
+  async performFullAnalysis(
+    textId: string,
+    userId: string
+  ): Promise<FullAnalysisResponseDto> {
+    const startTime = Date.now();
+
+    try {
+      const text = await this.textsService.getTextEntityById(textId, userId);
+
+      const cacheKey = this.generateCacheKey("full_analysis", textId);
+      const cachedResult =
+        await this.cacheService.get<FullAnalysisResponseDto>(cacheKey);
+
+      // Check if cache is still valid (text hasn't been modified since analysis)
+      if (
+        cachedResult &&
+        text.analyzed_at &&
+        text.updated_at <= text.analyzed_at
+      ) {
+        this.customLogger.logPerformance(
+          "full_analysis_cache_hit",
+          Date.now() - startTime,
+          {
+            userId,
+            textId,
+            textLength: text.content.length,
+            cacheHit: true,
+          }
+        );
+        return cachedResult;
+      }
+
+      // Perform all analysis in one go for efficiency
+      const analysisStartTime = Date.now();
+      const analysisResult = TextProcessor.analyzeText(text.content);
+      const longestWordsData = TextProcessor.findLongestWordsPerParagraph(
+        text.content
+      );
+      const analysisTime = Date.now() - analysisStartTime;
+
+      const result: FullAnalysisResponseDto = {
+        wordCount: analysisResult.words.length,
+        characterCount: analysisResult.characterCount,
+        sentenceCount: analysisResult.sentences.length,
+        paragraphCount: analysisResult.paragraphs.length,
+        longestWords: longestWordsData,
+        text: text.content,
+        textId: textId,
+        analyzedAt: new Date(),
+      };
+
+      // Extract all longest words for storage
+      const allLongestWords = longestWordsData.flatMap((item) => item.words);
+      const uniqueLongestWords = [...new Set(allLongestWords)];
+
+      // Update text entity with ALL analysis results
+      await this.textsService.updateTextAnalysis(textId, userId, {
+        word_count: result.wordCount,
+        character_count: result.characterCount,
+        sentence_count: result.sentenceCount,
+        paragraph_count: result.paragraphCount,
+        longest_words: uniqueLongestWords,
+      });
+
+      // Cache the complete result
+      await this.cacheService.set(cacheKey, result, this.CACHE_TTL);
+
+      // Invalidate individual analysis caches since we have new data
+      const analysisTypes = [
+        "word_count",
+        "character_count",
+        "sentence_count",
+        "paragraph_count",
+        "longest_words",
+      ];
+      for (const type of analysisTypes) {
+        await this.cacheService.del(this.generateCacheKey(type, textId));
+      }
+
+      this.customLogger.logBusinessEvent("analysis_performed", {
+        userId,
+        textId,
+        analysisType: "full_analysis",
+        textLength: text.content.length,
+        wordCount: result.wordCount,
+        characterCount: result.characterCount,
+        sentenceCount: result.sentenceCount,
+        paragraphCount: result.paragraphCount,
+        longestWordsCount: uniqueLongestWords.length,
+        processingTimeMs: analysisTime,
+        cacheHit: false,
+      });
+
+      this.customLogger.logPerformance(
+        "full_analysis",
+        Date.now() - startTime,
+        {
+          userId,
+          textId,
+          textLength: text.content.length,
+          totalMetrics: 5,
+          cacheHit: false,
+          algorithmTimeMs: analysisTime,
+        }
+      );
+
+      return result;
+    } catch (error) {
+      this.customLogger.logError(error, {
+        operation: "full_analysis",
+        userId,
+        textId,
+        processingTimeMs: Date.now() - startTime,
+      });
+
+      if (error instanceof ApiException) throw error;
+
+      throw new ApiException(
+        "Full text analysis failed",
         HttpStatus.INTERNAL_SERVER_ERROR,
         error.message
       );

@@ -16,6 +16,7 @@ import {
 import { ApiSuccess } from "../../common/exceptions/api.exception";
 import {
   CharacterCountSuccessResponseDto,
+  FullAnalysisSuccessResponseDto,
   LongestWordsSuccessResponseDto,
   ParagraphCountSuccessResponseDto,
   SentenceCountSuccessResponseDto,
@@ -25,6 +26,7 @@ import { CharacterCountResponseDto } from "../dto/character-count-response.dto";
 import { SentenceCountResponseDto } from "../dto/sentence-count-response.dto";
 import { ParagraphCountResponseDto } from "../dto/paragraph-count-response.dto";
 import { LongestWordsResponseDto } from "../dto/longest-words-response.dto";
+import { FullAnalysisResponseDto } from "../dto/full-analysis-response.dto";
 
 @ApiTags("Text Analysis")
 @ApiBearerAuth()
@@ -206,6 +208,40 @@ export class AnalysisController {
     return {
       success: true,
       message: "Longest words analysis completed successfully",
+      status: HttpStatus.OK,
+      data,
+    };
+  }
+
+  @RateLimit(RateLimitPresets.STRICT) // 10 requests per minute (more intensive operation)
+  @Post(":textId/analyze")
+  @ApiOperation({
+    summary: "Perform complete text analysis",
+    description:
+      "Run comprehensive analysis (words, characters, sentences, paragraphs, longest words) for a specific text owned by the user",
+  })
+  @ApiParam({
+    name: "textId",
+    description: "UUID of the text to analyze",
+    example: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Complete text analysis performed successfully",
+    type: FullAnalysisSuccessResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized" })
+  @ApiResponse({ status: 404, description: "Text not found" })
+  @ApiResponse({ status: 429, description: "Too many requests" })
+  async performFullAnalysis(
+    @Param("textId") textId: string,
+    @UserId() userId: string
+  ): Promise<ApiSuccess<FullAnalysisResponseDto>> {
+    const data = await this.analysisService.performFullAnalysis(textId, userId);
+
+    return {
+      success: true,
+      message: "Complete text analysis performed successfully",
       status: HttpStatus.OK,
       data,
     };
